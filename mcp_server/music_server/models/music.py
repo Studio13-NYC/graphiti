@@ -1,5 +1,5 @@
 import sys
-from typing import Any, Optional, Union, List, Dict
+from typing import Any, Optional, Union, List, Dict, ClassVar
 
 # Add parent directory to sys.path to allow imports from graphiti_core
 # This might be necessary depending on how the server is run.
@@ -9,6 +9,7 @@ from typing import Any, Optional, Union, List, Dict
 #     sys.path.append(parent_dir)
 
 from pydantic import BaseModel, Field
+from neontology import BaseNode
 
 # Base Entities (retained for compatibility)
 class Requirement(BaseModel):
@@ -27,8 +28,12 @@ class Procedure(BaseModel):
 
 
 # ── Music Entity Models ────────────────────────────────────
-class Artist(BaseModel):
+class Artist(BaseNode):
     """An individual musician or group."""
+    __primarylabel__: ClassVar[str] = "Artist"
+    __primaryproperty__: ClassVar[str] = "artist_name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     artist_name: str = Field(..., description="Artist name")
     biography: Optional[str] = Field(None, description="Artist biography and background")
     genres: Optional[str] = Field(None, description="Comma-separated string of musical genres associated with this artist")
@@ -47,8 +52,12 @@ class Artist(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Album(BaseModel):
+class Album(BaseNode):
     """A collection of music tracks released together."""
+    __primarylabel__: ClassVar[str] = "Album"
+    __primaryproperty__: ClassVar[str] = "album_title"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     album_title: str = Field(..., description="Album title")
     release_date: Optional[str] = Field(None, description="Date album was released")
     album_type: Optional[str] = Field(None, description="Type of album (LP, EP, Single, Compilation, etc.)")
@@ -67,8 +76,12 @@ class Album(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Track(BaseModel):
+class Track(BaseNode):
     """An individual song or musical composition."""
+    __primarylabel__: ClassVar[str] = "Track"
+    __primaryproperty__: ClassVar[str] = "track_title"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     track_title: str = Field(..., description="Track title")
     duration_ms: Optional[int] = Field(None, description="Duration in milliseconds")
     explicit: Optional[bool] = Field(None, description="Whether track contains explicit content")
@@ -90,8 +103,12 @@ class Track(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Equipment(BaseModel):
+class Equipment(BaseNode):
     """Musical instrument or gear used in recording or performance."""
+    __primarylabel__: ClassVar[str] = "Equipment"
+    __primaryproperty__: ClassVar[str] = "name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     name: str = Field(..., description="Equipment name")
     type: Optional[str] = Field(None, description="Equipment type (guitar, synthesizer, etc.)")
     manufacturer: Optional[str] = Field(None, description="Equipment manufacturer")
@@ -106,8 +123,12 @@ class Equipment(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Studio(BaseModel):
+class Studio(BaseNode):
     """Recording facility where music is produced."""
+    __primarylabel__: ClassVar[str] = "Studio"
+    __primaryproperty__: ClassVar[str] = "name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     name: str = Field(..., description="Studio name")
     location: Optional[str] = Field(None, description="Studio location")
     founding_date: Optional[str] = Field(None, description="When studio was founded")
@@ -121,8 +142,12 @@ class Studio(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Person(BaseModel):
+class Person(BaseNode):
     """Individual involved in music production (producer, engineer, etc.)."""
+    __primarylabel__: ClassVar[str] = "Person"
+    __primaryproperty__: ClassVar[str] = "name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     name: str = Field(..., description="Person's name")
     roles: Optional[List[str]] = Field(None, description="Professional roles")
     biography: Optional[str] = Field(None, description="Biographical information")
@@ -136,8 +161,12 @@ class Person(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Credit(BaseModel):
+class Credit(BaseNode):
     """Attribution for contribution to a musical work."""
+    __primarylabel__: ClassVar[str] = "Credit"
+    __primaryproperty__: ClassVar[str] = "role_name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     role_name: str = Field(..., description="Specific role name")
     contribution_details: Optional[str] = Field(None, description="Details about the contribution")
     primary_credit: Optional[bool] = Field(None, description="Whether this is a primary credit")
@@ -148,8 +177,12 @@ class Credit(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Label(BaseModel):
+class Label(BaseNode):
     """Music publishing company or record label."""
+    __primarylabel__: ClassVar[str] = "Label"
+    __primaryproperty__: ClassVar[str] = "name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     name: str = Field(..., description="Label name")
     founding_date: Optional[str] = Field(None, description="When label was founded")
     parent_company: Optional[str] = Field(None, description="Parent company if applicable")
@@ -163,8 +196,12 @@ class Label(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Performance(BaseModel):
+class Performance(BaseNode):
     """Live musical performance or concert."""
+    __primarylabel__: ClassVar[str] = "Performance"
+    __primaryproperty__: ClassVar[str] = "venue"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     venue: str = Field(..., description="Performance venue")
     date: Optional[str] = Field(None, description="Performance date")
     setlist: Optional[List[str]] = Field(None, description="List of tracks performed")
@@ -178,8 +215,12 @@ class Performance(BaseModel):
     schema_version: Optional[str] = Field("1.0", description="Schema version for migration support")
 
 
-class Effect(BaseModel):
+class Effect(BaseNode):
     """Audio effect or signal processor used in production."""
+    __primarylabel__: ClassVar[str] = "Effect"
+    __primaryproperty__: ClassVar[str] = "name"
+    __secondarylabels__: ClassVar[Optional[List]] = ["Entity"]
+
     name: str = Field(..., description="Effect name")
     type: Optional[str] = Field(None, description="Effect type (reverb, delay, etc.)")
     parameters: Optional[Dict[str, Union[str, int, float]]] = Field(None, description="Effect parameters")

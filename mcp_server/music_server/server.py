@@ -16,6 +16,8 @@ try:
     from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
     from graphiti_core.llm_client.openai_client import OpenAIClient
     from graphiti_core.llm_client.config import LLMConfig
+    # Neontology imports
+    from neontology import init_neontology, Neo4jConfig
 
     # Import configuration and tools
     from mcp_server.music_server.config import GraphitiConfig, MCPConfig
@@ -38,6 +40,8 @@ except ImportError:
     from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
     from graphiti_core.llm_client.openai_client import OpenAIClient
     from graphiti_core.llm_client.config import LLMConfig
+    # Neontology imports
+    from neontology import init_neontology, Neo4jConfig
 
     # Import configuration and tools using relative paths
     from .config import GraphitiConfig, MCPConfig
@@ -114,8 +118,19 @@ async def initialize_graphiti(cfg: GraphitiConfig):
         await graphiti_client.build_indices_and_constraints()
         logger.info("Graphiti client initialized successfully")
         
+        # Initialize Neontology
+        logger.info("Initializing Neontology...")
+        neo_config = Neo4jConfig(
+            uri=cfg.neo4j.uri,
+            username=cfg.neo4j.user,
+            password=cfg.neo4j.password,
+            database=cfg.neo4j.database if hasattr(cfg.neo4j, 'database') else None # Optional: Use database if specified in config
+        )
+        init_neontology(neo_config)
+        logger.info("Neontology initialized successfully")
+            
     except Exception as e:
-        logger.error(f"Failed to initialize Graphiti: {e}")
+        logger.error(f"Failed to initialize Graphiti or Neontology: {e}")
         raise
 
 async def main():
@@ -157,7 +172,7 @@ async def main():
         
         # Always register original tools when custom entities are enabled
         logger.info("Using original separate tools for music entities")
-        register_music_tools(mcp, graphiti_client, config)
+        register_music_tools(mcp, config)
         register_music_tools_part2(mcp, graphiti_client)
         register_relationship_tools(mcp, graphiti_client)
     else:

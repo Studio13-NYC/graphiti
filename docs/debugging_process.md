@@ -223,12 +223,12 @@ Modify the `add_artist` and `add_album` tools in `mcp_server/music_server/music_
 
 **Plan:**
 1. Modify the `add_artist` tool in `mcp_server/music_server/music_tools.py`:
-    * Keep the `Artist` model with `genres: Optional[str]`.
-    * When constructing `artist_data`, explicitly provide default values for all `Optional` fields instead of potentially passing `None`.
-        * Use `""` for `Optional[str]`.
-        * Use `0` for `Optional[int]`.
-        * Use `[]` for `Optional[List[str]]` (`influences`).
-    * Remove the filtering of `None` values from `artist_data`.
+    *   Keep the `Artist` model with `genres: Optional[str]`.
+    *   When constructing `artist_data`, explicitly provide default values for all `Optional` fields instead of potentially passing `None`.
+        *   Use `""` for `Optional[str]`.
+        *   Use `0` for `Optional[int]`.
+        *   Use `[]` for `Optional[List[str]]` (`influences`).
+    *   Remove the filtering of `None` values from `artist_data`.
 2. Test the `add_artist` tool again. 
 
 ## 18. Attempted Fix: Default Values for Optional Fields (May 2, 2025)
@@ -377,3 +377,58 @@ The `graphiti-core` library's implementation of `add_episode` is fundamentally d
 *   The MCP tool interfaces (`add_artist`, etc.) exposed to the LLM agent will remain unchanged; only the internal implementation that interacts with the database will be replaced.
 
 **Next Step:** Proceed with the documented plan to integrate `neontology` into the `mcp_server`.
+
+## 32. Implementation: Refactoring CRUD Tools with `neontology` (May 3, 2025)
+
+**Goal:** Replace the internal logic of music entity MCP tools with direct `neontology` calls.
+
+**Progress:**
+
+*   **Dependencies & Init:** `neontology` library added. Initialization logic added to `server.py`. Music models (`Artist`, `Album`, etc.) updated in `models/music.py` to inherit from `neontology.BaseNode` with required class variables (`__primarylabel__`, `__primaryproperty__`).
+*   **`add_artist` Refactored & Tested:**
+    *   Internal logic replaced with `neontology`. Instantiates `Artist` model, calls `artist_instance.merge()` (via executor).
+    *   **Result:** Successfully created "Neontology Test Artist 1" node with correct labels and properties, confirmed via manual Cypher query.
+*   **`get_artist` Refactored & Tested:**
+    *   Internal logic replaced with `neontology`. Uses `GraphConnection().evaluate_query()` with Cypher (`MATCH (a:Artist {artist_name: $name_param}) RETURN a LIMIT 1`) to find artist by name.
+    *   **Result:** Successfully retrieved "Neontology Test Artist 1". Corrected issues with `find_one` method assumptions and `evaluate_query` parameter usage. Resolved previous `AttributeError: 'Graphiti' object has no attribute 'get_entity_node'` by removing `graphiti_client` dependency from `register_music_tools` and ensuring all Artist tools in `music_tools.py` use `neontology`.
+*   **`search_artists` Refactored:**
+    *   Internal logic replaced with `neontology`. Uses `GraphConnection().evaluate_query()` with a case-insensitive `CONTAINS` Cypher query.
+*   **`update_artist` Refactored:**
+    *   Internal logic replaced with `neontology`. Uses `Artist.find_one()` (via executor, assuming this exists or needs correction like `get_artist`) to find, updates attributes, and calls `artist_instance.update()` (via executor). *Needs testing and confirmation of `find_one`/`update` methods.*
+*   **`delete_artist` Refactored:**
+    *   Internal logic replaced with `neontology`. Uses `Artist.find_one()` (via executor) and `artist_instance.delete()` (via executor). *Needs testing and confirmation of `find_one`/`delete` methods.*
+
+**Validation:** The successful tests for `add_artist` and `get_artist` confirm that `neontology` provides a viable and direct path for implementing CRUD operations on the graph, bypassing the issues encountered with `graphiti-core`'s `add_episode` for structured data.
+
+**Next Step:** Test the refactored `update_artist`, `delete_artist`, and `search_artists` tools. Then proceed to refactor `Album` and `Track` tools using `neontology` and the non-Optional signature pattern.
+
+## 33. Testing `neontology` Tools & MCP Signature Issues (May 3, 2025)
+
+**Goal:** Test the `neontology`-refactored artist tools (`search_artists`, `update_artist`, `delete_artist`) and resolve any remaining issues.
+
+**Progress & Findings:**
+
+*   **Initial Test Failures:** Initial attempts to test `add_artist`, `get_artist`, and `get_status` failed immediately after a server restart was *thought* to have happened. This indicated a server or connection issue.
+*   **Server Restart Confirmed:** User confirmed the server wasn't restarted, then performed the restart.
+*   **`add_artist`/`get_artist` Confirmed Working:** After the restart, `add_artist` and `get_artist` were confirmed to be working correctly with their `neontology` backend.
+*   **`search_artists` Failure (List Signature):** Testing `search_artists` with `group_ids=['s13-music']` failed with `Parameter 'group_ids' must be of type undefined, got array`. This confirmed the previous edit to change the signature from `Optional[List[str]]` to `Optional[str]` was not active on the server.
+*   **`search_artists` Signature Edit (str):** Edited `music_tools.py` to change the `search_artists` signature to `group_ids: Optional[str] = None`.
+*   **`search_artists` Failure (String Signature):** After restarting the server with the string signature, calling `search_artists` with `group_ids='s13-music'` failed with `Parameter 'group_ids' must be of type undefined, got string`. This indicated the MCP framework validation layer still struggles even with `Optional[str]`.
+*   **`search_artists` Success (No Optional Arg):** Calling `search_artists` *without* providing the `group_ids` parameter succeeded, confirming the core `neontology` search logic works.
+*   **`update_artist` Failure (Optional Signature):** Testing `update_artist` by providing `biography` failed with `Parameter 'biography' must be of type undefined, got string`. The signature for `update_artist` still used `Optional[str]` for updatable fields.
+*   **Consolidated Signature Fix (`update_artist`):** Realized the piecemeal approach was flawed. Modified `update_artist` signature in `music_tools.py` to remove *all* `Optional` types for parameters intended for update, replacing them with basic types and default values (e.g., `biography: str = ""`, `popularity: int = 0`). Updated the internal logic to handle these defaults and use `merge()` for persistence.
+*   **`update_artist` Failure (`find_one`):** After fixing the signature and restarting, `update_artist` failed with `Artist update failed: find_one`, indicating an issue with using `Artist.find_one()`.
+*   **`update_artist` Fix (evaluate_query):** Modified `update_artist` to use `evaluate_query` to find the node (similar to `get_artist`) instead of `find_one`. Tested successfully.
+*   **`delete_artist` Failure (`find_one`):** Testing `delete_artist` failed with `Artist deletion failed: find_one`, indicating the same issue as `update_artist`.
+*   **`delete_artist` Fix (evaluate_query):** Modified `delete_artist` to use `evaluate_query` to find the node.
+*   **`delete_artist` Failure (`BaseNode.delete()`):** After fixing `find_one` and restarting, `delete_artist` failed with `BaseNode.delete() missing 1 required positional argument: 'pp'`, indicating an issue calling the instance delete method.
+*   **`delete_artist` Fix (Direct Cypher):** Modified `delete_artist` again to use a direct `DETACH DELETE` Cypher query via `evaluate_query`, removing the problematic existence check.
+*   **`delete_artist` Success:** Final test confirmed successful deletion.
+
+**Conclusion:**
+
+*   The `neontology` backend implementation for `add_artist`, `get_artist`, `search_artists` (core), `update_artist`, and `delete_artist` is now functional.
+*   The primary blocker remains the MCP framework's inability to reliably validate tool signatures containing `Optional` types (including `Optional[str]` and `Optional[List[str]]`).
+*   The workaround is to define tool signatures using only basic types (`str`, `int`, `bool`, etc.) and provide default values (e.g., `str=""`, `int=0`). The tool's internal logic must then handle these default values appropriately when interacting with the `neontology` models (which *can* handle `Optional` fields correctly).
+
+**Next Step:** Proceed to refactor `Album` and `Track` tools using `neontology` and the non-Optional signature pattern.
