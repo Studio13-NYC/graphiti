@@ -9,16 +9,29 @@ import asyncio
 import json
 import logging
 import re
+import sys
+import os
 from typing import Any, Dict, List, Optional, Union, Tuple
+
+# Add the parent directory to the path to allow imports when run directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from graphiti_core import Graphiti
 from graphiti_core.nodes import EpisodeType, EntityNode
 from graphiti_core.edges import EntityEdge
 
-from .models.music import (
-    Artist, Album, Track, Equipment, Studio, Person, 
-    Credit, Label, Performance, Effect
-)
+# Try absolute imports first, then fall back to relative imports
+try:
+    from mcp_server.music_server.models.music import (
+        Artist, Album, Track, Equipment, Studio, Person, 
+        Credit, Label, Performance, Effect
+    )
+except ImportError:
+    # If absolute imports fail, try relative imports
+    from .models.music import (
+        Artist, Album, Track, Equipment, Studio, Person, 
+        Credit, Label, Performance, Effect
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +225,7 @@ class MusicDataParser:
                     album = json_data.get("album")
                     if isinstance(album, str):
                         album = {"title": album}
-                    extracted_entities.append({"entity_type": "Album", "attributes": album})
+                        extracted_entities.append({"entity_type": "Album", "attributes": album})
                 
                 if "tracks" in json_data:
                     tracks = json_data.get("tracks", [])
