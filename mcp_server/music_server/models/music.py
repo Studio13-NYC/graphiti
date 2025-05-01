@@ -28,10 +28,10 @@ class Procedure(BaseModel):
 
 # ── Music Entity Models ────────────────────────────────────
 class Artist(BaseModel):
-    """An individual musician or group that creates musical content."""
-    name: str = Field(..., description="Artist name")
+    """An individual musician or group."""
+    artist_name: str = Field(..., description="Artist name")
     biography: Optional[str] = Field(None, description="Artist biography and background")
-    genres: Optional[List[str]] = Field(None, description="List of musical genres associated with this artist")
+    genres: Optional[str] = Field(None, description="Comma-separated string of musical genres associated with this artist")
     active_years: Optional[str] = Field(None, description="Time period when artist was/is active")
     country: Optional[str] = Field(None, description="Country of origin")
     image_url: Optional[str] = Field(None, description="URL to artist image")
@@ -40,7 +40,6 @@ class Artist(BaseModel):
     followers: Optional[int] = Field(None, description="Number of followers/fans")
     spotify_uri: Optional[str] = Field(None, description="Spotify URI for this artist")
     spotify_url: Optional[str] = Field(None, description="Spotify URL for this artist")
-    # Extended fields for future compatibility
     social_media: Optional[Dict[str, str]] = Field(None, description="Social media handles/links")
     official_website: Optional[str] = Field(None, description="Artist's official website")
     formation_date: Optional[str] = Field(None, description="When band/group was formed")
@@ -50,7 +49,7 @@ class Artist(BaseModel):
 
 class Album(BaseModel):
     """A collection of music tracks released together."""
-    title: str = Field(..., description="Album title")
+    album_title: str = Field(..., description="Album title")
     release_date: Optional[str] = Field(None, description="Date album was released")
     album_type: Optional[str] = Field(None, description="Type of album (LP, EP, Single, Compilation, etc.)")
     total_tracks: Optional[int] = Field(None, description="Total number of tracks")
@@ -70,7 +69,7 @@ class Album(BaseModel):
 
 class Track(BaseModel):
     """An individual song or musical composition."""
-    title: str = Field(..., description="Track title")
+    track_title: str = Field(..., description="Track title")
     duration_ms: Optional[int] = Field(None, description="Duration in milliseconds")
     explicit: Optional[bool] = Field(None, description="Whether track contains explicit content")
     popularity: Optional[int] = Field(None, description="Popularity score (0-100)")

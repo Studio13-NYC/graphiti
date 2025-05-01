@@ -157,7 +157,7 @@ async def main():
         
         # Always register original tools when custom entities are enabled
         logger.info("Using original separate tools for music entities")
-        register_music_tools(mcp, graphiti_client)
+        register_music_tools(mcp, graphiti_client, config)
         register_music_tools_part2(mcp, graphiti_client)
         register_relationship_tools(mcp, graphiti_client)
     else:

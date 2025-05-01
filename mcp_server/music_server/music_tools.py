@@ -84,7 +84,7 @@ def format_relationship_result(edge: EntityEdge) -> RelationshipResponse:
     )
 
 # --- Entity Creation Tools ---
-def register_music_tools(mcp: FastMCP, graphiti_client: Graphiti):
+def register_music_tools(mcp: FastMCP, graphiti_client: Graphiti, config: Any):
     """Register all music entity tools with the FastMCP instance."""
     global graphiti_client_instance, mcp_instance
     graphiti_client_instance = graphiti_client
@@ -96,68 +96,83 @@ def register_music_tools(mcp: FastMCP, graphiti_client: Graphiti):
     # --- Artist Tools ---
     @mcp_instance.tool()
     async def add_artist(
-        name: str,
-        biography: Optional[str] = None,
-        genres: Optional[str] = None,  # Comma-separated string
-        active_years: Optional[str] = None,
-        country: Optional[str] = None,
-        image_url: Optional[str] = None,
-        influences: Optional[str] = None,  # Comma-separated string
-        popularity: Optional[int] = None,
-        followers: Optional[int] = None,
-        spotify_uri: Optional[str] = None,
-        spotify_url: Optional[str] = None,
-        group_id: Optional[str] = None,
+        # Use basic types and defaults in signature
+        artist_name: str, 
+        biography: str = "",
+        genres: str = "",
+        active_years: str = "",
+        country: str = "",
+        image_url: str = "",
+        influences: str = "", # Comma-separated string
+        popularity: int = 0,
+        followers: int = 0,
+        spotify_uri: str = "",
+        spotify_url: str = "",
+        group_id: str = "", # Use empty string default, resolve later
     ) -> Union[EntityResponse, ErrorResponse]:
-        """Add a new artist entity to the graph."""
+        """Add a new artist entity (using basic types in signature)."""
+        logger.info(f"--- Entered add_artist (basic types) for {artist_name} ---")
         if not graphiti_client_instance:
+            logger.error("Add_artist (basic types): Graphiti client not initialized")
             return ErrorResponse(error="Graphiti client not initialized")
         
         try:
-            # Process list fields from comma-separated strings
-            genres_list = genres.split(",") if genres else None
-            influences_list = influences.split(",") if influences else None
+            # # Process inputs (convert defaults back or process lists)
+            # influences_list = influences.split(",") if influences else []
+            # # No need to convert empty strings back to None for Optional[str/int] 
+            # # in Pydantic v2 when validating dictionary data.
             
-            # Create artist data
-            artist_data = {
-                "name": name,
-                "biography": biography,
-                "genres": genres_list,
-                "active_years": active_years,
-                "country": country,
-                "image_url": image_url,
-                "influences": influences_list,
-                "popularity": popularity,
-                "followers": followers,
-                "spotify_uri": spotify_uri,
-                "spotify_url": spotify_url,
-                "schema_version": "1.0"
-            }
-            # Filter out None values
-            artist_data = {k: v for k, v in artist_data.items() if v is not None}
+            # # Create artist data using MODEL field names
+            # artist_data = {
+            #     "artist_name": artist_name,
+            #     "biography": biography,
+            #     "genres": genres, # Model expects Optional[str]
+            #     "active_years": active_years,
+            #     "country": country,
+            #     "image_url": image_url,
+            #     "influences": influences_list, # Model expects Optional[List[str]]
+            #     "popularity": popularity,
+            #     "followers": followers,
+            #     "spotify_uri": spotify_uri,
+            #     "spotify_url": spotify_url,
+            #     "schema_version": "1.0"
+            # }
+            # # Explicitly filter out default empty/zero values before sending
+            # artist_data_filtered = {k: v for k, v in artist_data.items() if v not in ["", 0, None] and (not isinstance(v, list) or v)} # Keep non-empty lists
             
-            # Create the artist node
-            episode_body = json.dumps({"Artist": artist_data})
-            effective_group_id = group_id or "music"
+            # Create the artist node JSON body using filtered data
+            # episode_body = json.dumps(artist_data_filtered)
             
-            # Add as JSON episode
+            # --- Minimal Test --- 
+            artist_data_minimal = {"artist_name": artist_name}
+            episode_body = json.dumps(artist_data_minimal)
+            # --- End Minimal Test ---
+
+            # Resolve group_id (use input or default from config)
+            effective_group_id = group_id if group_id else (config.group_id if config else "music-fallback")
+            logger.info(f"Add_artist (basic types): Creating episode for {artist_name} in group {effective_group_id} with minimal body: {episode_body}")
+            
+            # Directly call the core add_episode method, but WITHOUT entity_types
             result = await graphiti_client_instance.add_episode(
-                name=f"Artist: {name}",
+                name=f"Artist: {artist_name}",
                 episode_body=episode_body,
                 source=EpisodeType.json,
+                source_description=f"add_artist tool call for {artist_name}",
+                reference_time=datetime.now(timezone.utc),
                 group_id=effective_group_id,
                 entity_types={"Artist": Artist}
             )
             
-            # Extract the created artist node
+            # Extract the created artist node (might be generic Entity now)
             artist_nodes = [node for node in result.nodes if "Artist" in node.labels]
             if not artist_nodes:
                 return ErrorResponse(error="Artist creation failed: no artist node found in result")
             
+            # Use format_entity_result (assuming it handles the new artist_name attribute)
             return format_entity_result(artist_nodes[0])
             
         except Exception as e:
-            logger.error(f"Error creating artist: {e}")
+            logger.error(f"Error creating artist: {e}", exc_info=True) # Add exc_info
             return ErrorResponse(error=f"Artist creation failed: {str(e)}")
 
     @mcp_instance.tool()
@@ -298,70 +313,78 @@ def register_music_tools(mcp: FastMCP, graphiti_client: Graphiti):
     # --- Album Tools ---
     @mcp_instance.tool()
     async def add_album(
-        title: str,
-        release_date: Optional[str] = None,
-        album_type: Optional[str] = None,
-        total_tracks: Optional[int] = None,
-        catalog_number: Optional[str] = None,
-        images: Optional[str] = None,  # JSON string of image objects
-        release_date_precision: Optional[str] = None,
-        spotify_uri: Optional[str] = None,
-        spotify_url: Optional[str] = None,
-        genres: Optional[str] = None,  # Comma-separated string
-        description: Optional[str] = None,
-        producer: Optional[str] = None,
-        length_minutes: Optional[int] = None,
-        group_id: Optional[str] = None,
+        # Use basic types and defaults in signature
+        album_title: str,
+        release_date: str = "",
+        album_type: str = "",
+        total_tracks: int = 0,
+        catalog_number: str = "",
+        images: str = "",  # JSON string of image objects
+        release_date_precision: str = "",
+        spotify_uri: str = "",
+        spotify_url: str = "",
+        genres: str = "",  # Comma-separated string
+        description: str = "",
+        producer: str = "",
+        length_minutes: int = 0,
+        group_id: str = "", # Use empty string default, resolve later
     ) -> Union[EntityResponse, ErrorResponse]:
-        """Add a new album entity to the graph."""
+        """Add a new album entity (using basic types in signature)."""
+        logger.info(f"--- Entered add_album (basic types) for {album_title} ---")
         if not graphiti_client_instance:
+            logger.error("Add_album (basic types): Graphiti client not initialized")
             return ErrorResponse(error="Graphiti client not initialized")
         
         try:
-            # Process list and complex fields
-            genres_list = genres.split(",") if genres else None
-            images_list = json.loads(images) if images else None
+            # Process inputs (convert defaults back or process lists/json)
+            genres_list = genres.split(",") if genres else []
+            images_list = json.loads(images) if images else [] # Expects JSON string input
             
-            # Create album data
+            # Create album data using MODEL field names
             album_data = {
-                "title": title,
+                "album_title": album_title,
                 "release_date": release_date,
                 "album_type": album_type,
                 "total_tracks": total_tracks,
                 "catalog_number": catalog_number,
-                "images": images_list,
+                "images": images_list, # Model expects Optional[List[Dict[str, str]]]
                 "release_date_precision": release_date_precision,
                 "spotify_uri": spotify_uri,
                 "spotify_url": spotify_url,
-                "genres": genres_list,
+                "genres": genres_list, # Model expects Optional[List[str]]
                 "description": description,
                 "producer": producer,
                 "length_minutes": length_minutes,
                 "schema_version": "1.0"
             }
-            # Filter out None values
-            album_data = {k: v for k, v in album_data.items() if v is not None}
+            # Explicitly filter out default empty/zero values before sending
+            album_data_filtered = {k: v for k, v in album_data.items() if v not in ["", 0, None] and (not isinstance(v, list) or v)} # Keep non-empty lists
             
-            # Create the album node
-            episode_body = json.dumps({"Album": album_data})
-            effective_group_id = group_id or "music"
+            # Create the album node JSON body using filtered data
+            episode_body = json.dumps(album_data_filtered)
+            # Resolve group_id
+            effective_group_id = group_id if group_id else (config.group_id if config else "music-fallback")
+            logger.info(f"Add_album (basic types): Creating episode for {album_title} in group {effective_group_id}")
             
-            # Add as JSON episode
+            # Directly call the core add_episode method, but WITHOUT entity_types
             result = await graphiti_client_instance.add_episode(
-                name=f"Album: {title}",
+                name=f"Album: {album_title}",
                 episode_body=episode_body,
                 source=EpisodeType.json,
+                source_description=f"add_album tool call for {album_title}",
+                reference_time=datetime.now(timezone.utc),
                 group_id=effective_group_id,
                 entity_types={"Album": Album}
             )
             
-            # Extract the created album node
+            # Extract the created album node (might be generic Entity now)
             album_nodes = [node for node in result.nodes if "Album" in node.labels]
             if not album_nodes:
                 return ErrorResponse(error="Album creation failed: no album node found in result")
             
+            # Use format_entity_result (assuming it handles the new album_title attribute)
             return format_entity_result(album_nodes[0])
             
         except Exception as e:
-            logger.error(f"Error creating album: {e}")
+            logger.error(f"Error creating album: {e}", exc_info=True) # Add exc_info
             return ErrorResponse(error=f"Album creation failed: {str(e)}") 

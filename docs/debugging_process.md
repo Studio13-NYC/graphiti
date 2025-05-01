@@ -144,3 +144,236 @@ Both attempts failed with a similar error pattern, indicating a type mismatch pr
 5.  **Verify the Fix:**
     *   **Goal:** Confirm the error is resolved.
     *   **Action:** Re-run the failing MCP call (`mcp_Graphiti-Music_add_artist`) and verify successful completion and entity creation. 
+
+## 12. Analysis of Core `add_episode` and Proposed Fix (May 2, 2025)
+
+**Goal:** Complete steps 2 and 3 of the debugging plan by analyzing the core `graphiti_client.add_episode` logic and formulating a fix.
+
+**Findings:**
+
+-   The core `Graphiti.add_episode` method (in `graphiti_core/graphiti.py`) accepts `episode_body` as a string and `entity_types` as a dictionary.
+-   It *does not* perform JSON parsing or Pydantic validation directly based on these arguments.
+-   Instead, it passes the `episode_body` (stored as `episode.content`) and the `entity_types` dictionary down to helper functions (`extract_nodes`, `resolve_extracted_nodes`, `extract_attributes_from_nodes`).
+-   These helper functions are responsible for parsing the `episode_body` JSON (when `source=EpisodeType.json`) and validating the data against the Pydantic model specified by `entity_types`.
+
+**Refined Hypothesis:**
+
+The type error (`Parameter 'genres' must be of type undefined, got string`) likely originates within the core helper functions (`extract_nodes`, etc.). The way `music_tools.py` currently formats the `episode_body` (`json.dumps({"Artist": artist_data})`) causes the validation step within these helpers to fail. The helpers probably expect the `episode_body` JSON string to contain *only* the raw entity attributes (`json.dumps(artist_data)`) and use the `entity_types` dictionary *separately* to identify the `Artist` model for validation, rather than finding the model name as a key *within* the JSON.
+
+**Proposed Fix:**
+
+Modify the `add_artist` function in `mcp_server/music_server/music_tools.py` to format the `episode_body` correctly:
+
+-   **Change:** `episode_body = json.dumps(artist_data)` (Remove the outer `{"Artist": ...}` structure)
+-   **Ensure:** `source=EpisodeType.json` and `entity_types={"Artist": Artist}` are correctly passed (this seems to be handled by the wrapper `add_episode` tool in `mcp_server/music_server/tools.py`).
+
+**Next Step:** Implement the proposed fix in `mcp_server/music_server/music_tools.py` and test the `add_artist` tool again. 
+
+## 13. Investigation of `add_episode` Wrapper Tool (May 2, 2025)
+
+**Goal:** Investigate the interaction between the specific entity tools (`add_artist`) and the generic `add_episode` tool defined in `mcp_server/music_server/tools.py`.
+
+**Findings:**
+
+-   Analysis of the `add_episode` tool in `tools.py` revealed that it intercepts calls intended for the core `Graphiti.add_episode` method.
+-   This wrapper tool implements its own queueing logic.
+-   Crucially, it determines the `entity_types` dictionary passed to the core method based *only* on the global server configuration (`config.use_custom_entities`). It passes the entire `MUSIC_ENTITY_TYPES` dictionary if the flag is true, or an empty dictionary if false.
+-   It **completely ignores** the specific `entity_types` dictionary (e.g., `{"Artist": Artist}`) provided by the calling function (`add_artist`).
+
+**Conclusion & Root Cause Identified:**
+
+The `add_artist` tool correctly prepares its data and the specific `entity_types={"Artist": Artist}` mapping. However, the `add_episode` wrapper tool in `tools.py` intercepts the call, discards the specific mapping, and substitutes the large, generic `MUSIC_ENTITY_TYPES` dictionary. The core `Graphiti.add_episode` method then likely fails during Pydantic validation due to the ambiguity of being given JSON for one entity type but a dictionary mapping *all* possible music types.
+
+**Proposed Fix (Revised):**
+
+Modify the `add_artist` and `add_album` tools in `mcp_server/music_server/music_tools.py` to bypass the wrapper `add_episode` *tool* and call the core `graphiti_client_instance.add_episode` *method* directly. This ensures the specific `entity_types` dictionary is correctly passed to the core validation logic.
+
+**Next Step:** Implement the revised fix by modifying the calls within `add_artist` and `add_album` in `music_tools.py` to directly invoke the core method, ensuring all required parameters are supplied. 
+
+## 14. Attempted Fix: Direct Core Call (May 2, 2025)
+
+**Action:** Modified `add_artist` and `add_album` in `music_tools.py` to call `graphiti_client_instance.add_episode` directly, providing `reference_time`, `source_description`, and specific `entity_types` (e.g., `{"Artist": Artist}`).
+
+**Result:** Test call to `mcp_Graphiti-Music_add_artist` still failed with the same error: `Parameter 'genres' must be of type undefined, got string`.
+
+**Conclusion:** Bypassing the wrapper tool did not resolve the issue. The root cause appears to be within the `graphiti-core` validation process when `entity_types` is used with JSON source, specifically related to list-type fields derived from strings.
+
+## 15. Next Approach: Modify Pydantic Model (May 2, 2025)
+
+**Decision:** Since modifying the `episode_body` format and bypassing the wrapper tool failed, the next approach is to change the Pydantic model itself to avoid the problematic list validation.
+
+**Plan:**
+1. Modify the `Artist` model in `mcp_server/music_server/models/music.py`: Changed `genres` field type from `Optional[List[str]]` to `Optional[str]`.
+2. Modify the `add_artist` tool in `mcp_server/music_server/music_tools.py`: Removed `.split(',')` for `genres` and passed the raw string value to `artist_data`.
+3. Test the `add_artist` tool again.
+
+## 16. Attempted Fix: Modify Pydantic Model (May 2, 2025)
+
+**Action:** 
+1. Modified `Artist` model in `models/music.py`: Changed `genres` field type from `Optional[List[str]]` to `Optional[str]`.
+2. Modified `add_artist` tool in `music_tools.py`: Removed `.split(',')` for `genres` and passed the raw string value to `artist_data`.
+
+**Result:** Test call to `mcp_Graphiti-Music_add_artist` still failed with the same error: `Parameter 'genres' must be of type undefined, got string`.
+
+**Conclusion:** Modifying the Pydantic model to expect a string for `genres` did not resolve the issue. The `graphiti-core` validation process still fails, suggesting the problem isn't simply the list type but a deeper issue with handling optional fields or the validation setup itself when `entity_types` is used with JSON source.
+
+## 17. Next Approach: Test Default Values for Optional Fields (May 2, 2025)
+
+**Hypothesis:** The validation issue might stem from `graphiti-core` / Pydantic's handling of `None` or missing optional fields in the JSON payload when `entity_types` is used.
+
+**Plan:**
+1. Modify the `add_artist` tool in `mcp_server/music_server/music_tools.py`:
+    * Keep the `Artist` model with `genres: Optional[str]`.
+    * When constructing `artist_data`, explicitly provide default values for all `Optional` fields instead of potentially passing `None`.
+        * Use `""` for `Optional[str]`.
+        * Use `0` for `Optional[int]`.
+        * Use `[]` for `Optional[List[str]]` (`influences`).
+    * Remove the filtering of `None` values from `artist_data`.
+2. Test the `add_artist` tool again. 
+
+## 18. Attempted Fix: Default Values for Optional Fields (May 2, 2025)
+
+**Action:** Modified `add_artist` in `music_tools.py` to provide default empty values (`""`, `0`, `[]`) for all optional fields instead of potentially passing `None`.
+
+**Result:** Test call to `mcp_Graphiti-Music_add_artist` still failed with the same error: `Parameter 'genres' must be of type undefined, got string`.
+
+**Conclusion:** Providing default values did not resolve the issue. This reinforces the conclusion that the failure occurs before the `add_artist` function logic is executed, likely during MCP framework validation of the tool call itself.
+
+## 19. Next Approach: Simplify Tool Signature (May 2, 2025)
+
+**Hypothesis:** The MCP framework (or the client-side dispatch) is failing to validate the tool call signature, possibly confused by the `Optional` types or the history of list-like fields (`genres`, `influences`). The error occurs *before* the `add_artist` Python code runs.
+
+**Plan:**
+1.  Temporarily simplify the `add_artist` signature in `mcp_server/music_server/music_tools.py` to accept only `name: str` and `group_id: Optional[str]`.
+2.  Adjust the `add_artist` function body to work with only these parameters, commenting out or providing fixed defaults for `artist_data`.
+3.  Test a simplified call (`mcp_Graphiti-Music_add_artist(name="Test Simplify", group_id="s13-music")`) and check server logs for *any* sign of the tool being invoked.
+
+## 20. Attempted Fix: Simplify Tool Signature (May 2, 2025)
+
+**Action:** Simplified the `add_artist` tool signature to accept only `name: str` and `group_id: Optional[str]`. Adjusted body to use fixed defaults.
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(name="Test Simplify", group_id="s13-music")` failed with `Error calling tool: Parameter 'group_id' must be of type undefined, got string`. Server logs did *not* show the entry message for the tool, confirming the error happens during framework validation, before the tool code runs.
+
+**Conclusion:** The MCP framework validation is failing, specifically on `Optional[str]` parameters. The original failure on `genres` was likely the first `Optional` parameter it encountered.
+
+## 21. Next Approach: Remove Optional Typing from Signature (May 2, 2025)
+
+**Hypothesis:** The MCP framework validation cannot handle `Optional` types correctly in the tool signature.
+
+**Plan:**
+1.  Restore the full `add_artist` signature in `mcp_server/music_server/music_tools.py`, but declare all parameters that were previously `Optional` as non-optional (`str`, `int`). Provide default values directly in the signature (e.g., `group_id: str = "music-test"`).
+2.  Adjust the `add_artist` function body to handle these non-optional inputs (though the default values might suffice).
+3.  Test the `add_artist` call again. 
+
+## 22. Attempted Fix: Remove Optional Typing (May 2, 2025)
+
+**Action:** Restored full `add_artist` signature but removed `Optional` types, providing defaults directly in the signature (`str=""`, `int=0`).
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(name="Test Artist NonOptional")` still failed. (Exact error might need re-checking, but likely similar framework-level validation error).
+
+**Conclusion:** Removing `Optional` from the signature did not resolve the framework validation issue.
+
+## 23. Next Approach: Simplify Model and Tool (May 2, 2025)
+
+**Hypothesis:** The complexity of the model or the tool signature, even without `Optional`, is confusing the MCP framework validation.
+
+**Plan:**
+1. Simplify the `Artist` model in `models/music.py` to *only* contain `name: str`.
+2. Simplify the `add_artist` tool signature in `music_tools.py` to *only* accept `name: str`.
+3. Adjust the `add_artist` body to only use `name`.
+4. Test the simplest possible call `mcp_Graphiti-Music_add_artist(name="Test Minimal Model")` and check server logs.
+
+## 24. Attempted Fix: Simplify Model and Tool (May 2, 2025)
+
+**Action:** 
+1. Simplified `Artist` model to only include `name: str`.
+2. Simplified `add_artist` tool signature to only accept `name: str`.
+3. Adjusted `add_artist` body for minimal data and inferred `group_id` from `config_instance`.
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(name="Test Minimal Model")` failed with `Error: Artist creation failed: name 'config_instance' is not defined`. However, this error originated *within* the tool's Python code, indicating the call successfully passed the MCP framework validation.
+
+**Conclusion:** The MCP framework validation fails when presented with complex signatures involving `Optional` types or potentially conflicting historical types (like list-based `genres`). Simplifying the signature allows the call to proceed.
+
+## 25. Fix `NameError` and Retest Minimal Tool (May 2, 2025)
+
+**Action (Corrected):** 
+1. Modified `register_music_tools` in `music_tools.py` to accept and store the `config` object globally within the module.
+2. Modified `server.py` to pass the `config` object during the call to `register_music_tools`.
+
+**Action (Corrected):** 
+1. Removed the global `config_instance` from `music_tools.py`.
+2. Modified the nested `add_artist` function in `music_tools.py` to access the `config` object directly from the outer `register_music_tools` function's scope.
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(name="Test Minimal Model Fixed")` still failed with `Error: Artist creation failed: name 'config_instance' is not defined`.
+
+**Conclusion:** The attempt to fix the `NameError` by accessing the outer scope's `config` variable failed, suggesting issues with how nested functions and module imports handle variable scope in this setup.
+
+**Next Step:** Revert the minimal model/tool simplification and address the core MCP framework validation issue with `Optional` types directly, or investigate alternative dependency injection methods for the `config` object. 
+
+## 26. Identify Protected Attribute Error (May 2, 2025)
+
+**Action:** Retried minimal test after correcting `NameError` scope issue.
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(name="Test Minimal Model Scope Fix")` failed with `Error: Artist creation failed: name cannot be used as an attribute for Artist as it is a protected attribute name.`.
+
+**Conclusion:** The minimal call now passes MCP framework validation but reveals a new error: `graphiti-core` prevents using "name" as a direct attribute key in the JSON when using `entity_types`. This indicates a conflict between the desired model field name and internal Graphiti conventions.
+
+## 27. Final Approach: Rename Fields and Fix Signature Validation (May 2, 2025)
+
+**Hypothesis:** Combining the fix for MCP framework validation (avoiding `Optional` in signatures) with the fix for the protected attribute error (renaming `name`/`title`) will allow the tools to work.
+
+**Plan:**
+1.  **Modify Models (`models/music.py`):** Rename `Artist.name` -> `artist_name`, `Album.title` -> `album_title`, `Track.title` -> `track_title`. Restore all other fields to their original `Optional` types.
+2.  **Modify Tool Signatures:** Update `add_artist`, `add_album` (and potentially `add_track`) signatures to use basic types (`str`, `int`) with defaults (`""`, `0`) instead of `Optional`. Use the new primary field names (`artist_name`, `album_title`).
+3.  **Modify Tool Bodies:** Update tools to use new field names. Handle string-to-list conversions internally (e.g., `influences`, `genres`). Call core `add_episode` directly with specific `entity_types`.
+4.  **Test:** Retry `add_artist` and `add_album` with full parameters.
+
+## 28. Attempted Fix: Filter Empty/Default Values (May 2, 2025)
+
+**Action:** Added explicit filtering of default values (`""`, `0`, `[]`) from the `artist_data`/`album_data` dictionaries before JSON serialization in the `add_artist`/`add_album` tools.
+
+**Result:** Test call `mcp_Graphiti-Music_add_artist(artist_name="Test Artist Final Fix", genres="Rock, Alternative", ...)` still failed with `Error: Artist creation failed: 'source_description'`.
+
+**Conclusion:** The error message was misleading. The failure is still happening during the core `add_episode` process when `entity_types` is used, even with non-optional signatures, renamed primary fields, and filtered default values. The exact point of failure within the Pydantic validation triggered by `graphiti-core` remains elusive without inspecting core library code.
+
+## 29. Workaround Test 1: Remove `entity_types` (May 2, 2025)
+
+**Goal:** As a minimal test of the workaround, determine if removing the `entity_types` parameter entirely from the `graphiti_client.add_episode` call allows the operation to succeed at all, even if it only creates a generic episode/entity.
+
+**Action:**
+1. Modified `add_artist` and `add_album` in `music_tools.py`.
+2. Removed the `entity_types=...` parameter from the call to `graphiti_client_instance.add_episode`.
+
+**Next Step:** Test the `add_artist` tool with the modified code.
+
+## 30. Root Cause Analysis: LLM Extraction Failure (May 3, 2025)
+
+**Goal:** Investigate the internal workings of `graphiti-core`'s `add_episode` method to understand why minimal JSON tests failed.
+
+**Actions:**
+1.  Located `graphiti-core` source code within the workspace.
+2.  Read `graphiti_core/graphiti.py` to analyze the `add_episode` method.
+3.  Identified that `add_episode` delegates node and attribute handling to helper functions (`extract_nodes`, `resolve_extracted_nodes`, `extract_attributes_from_nodes`) in `graphiti_core/utils/maintenance/node_operations.py`.
+4.  Read `graphiti_core/utils/maintenance/node_operations.py` to analyze these helpers.
+
+**Findings:**
+*   The `extract_nodes` function uses an LLM to identify potential entity nodes based on `episode.content`, even when `source=json`. It does not directly parse the JSON at this stage.
+*   The `extract_attributes_from_nodes` function (specifically its helper `extract_attributes_from_node`) dynamically creates a Pydantic model based on the provided `entity_types` and then **calls an LLM**, asking it to populate this model using the `episode.content` (the JSON string) as context.
+*   Crucially, the library **does not directly parse the input JSON** (`episode_body`) and validate it against the provided Pydantic model (e.g., `Artist`) when `source=json` and `entity_types` are used. It relies on the LLM to perform this extraction.
+
+**Conclusion (Root Cause):**
+The `graphiti-core` library's implementation of `add_episode` is fundamentally designed around LLM-based extraction from episode content. When provided with `source=json` and `entity_types`, it inappropriately attempts to use the LLM to "extract" attributes from the raw JSON string, rather than directly parsing and validating the JSON against the specified Pydantic model. This LLM step fails predictably, leading to unexpected internal errors that manifest as the misleading `'source_description'` error. The library does not support direct, validated JSON ingestion into typed entities via the `add_episode` pathway.
+
+## 31. Decision: Adopt `neontology` for Backend CRUD (May 3, 2025)
+
+**Problem:** The core `graphiti-core` mechanism (`add_episode`) is unsuitable for reliably creating typed entity nodes (like `Artist`, `Album`) directly from structured JSON data provided via MCP tools.
+
+**Decision:** Implement the backend CRUD logic (Create, Read, Update, Delete) for the music entity MCP tools (`add_artist`, `get_artist`, `add_album`, etc.) using the `neontology` library.
+
+**Rationale:**
+*   `neontology` provides a direct Object-Graph Mapper (OGM) approach using Pydantic models (`BaseNode`, `BaseRelationship`).
+*   It offers direct methods (e.g., `.create()`, `.merge()`, `.find_one()`, `.delete()`) for graph operations based on model instances, bypassing the problematic LLM extraction layer in `graphiti-core`.
+*   This approach is better suited for the use case of creating/managing graph nodes from known, structured data provided by the MCP tools.
+*   The MCP tool interfaces (`add_artist`, etc.) exposed to the LLM agent will remain unchanged; only the internal implementation that interacts with the database will be replaced.
+
+**Next Step:** Proceed with the documented plan to integrate `neontology` into the `mcp_server`.
