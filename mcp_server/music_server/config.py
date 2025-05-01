@@ -1,8 +1,12 @@
 import os
 import logging
 import argparse
+import sys
 from collections.abc import Callable
 from typing import Optional
+
+# Add the parent directory to the path to allow imports when run directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from pydantic import BaseModel, Field
 

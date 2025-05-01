@@ -4,27 +4,55 @@ import os
 import argparse
 import sys
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
-from mcp.server.fastmcp import FastMCP
-from graphiti_core import Graphiti
-from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
-from graphiti_core.llm_client.openai_client import OpenAIClient
-from graphiti_core.llm_client.config import LLMConfig
+# Add the parent directory to the path to allow imports when run directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-# Import configuration and tools
-from .config import GraphitiConfig, MCPConfig
-from .tools import register_tools
-# Import the original tools (will be commented out but kept for reference)
-from .music_tools import register_music_tools
-from .music_tools_part2 import register_music_tools_part2
-from .relationship_tools import register_relationship_tools
-# Import the new universal parser
-from .parser import MusicDataParser
-from .models.music import (
-    Artist, Album, Track, Equipment, Studio, Person, 
-    Credit, Label, Performance, Effect,
-    Requirement, Preference, Procedure
-)
+# Try absolute imports first, then fall back to relative imports
+try:
+    from mcp.server.fastmcp import FastMCP
+    from graphiti_core import Graphiti
+    from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+    from graphiti_core.llm_client.openai_client import OpenAIClient
+    from graphiti_core.llm_client.config import LLMConfig
+
+    # Import configuration and tools
+    from mcp_server.music_server.config import GraphitiConfig, MCPConfig
+    from mcp_server.music_server.tools import register_tools
+    # Import the original tools (will be commented out but kept for reference)
+    from mcp_server.music_server.music_tools import register_music_tools
+    from mcp_server.music_server.music_tools_part2 import register_music_tools_part2
+    from mcp_server.music_server.relationship_tools import register_relationship_tools
+    # Import the new universal parser
+    from mcp_server.music_server.parser import MusicDataParser
+    from mcp_server.music_server.models.music import (
+        Artist, Album, Track, Equipment, Studio, Person, 
+        Credit, Label, Performance, Effect,
+        Requirement, Preference, Procedure
+    )
+except ImportError:
+    # If absolute imports fail, try relative imports
+    from mcp.server.fastmcp import FastMCP
+    from graphiti_core import Graphiti
+    from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+    from graphiti_core.llm_client.openai_client import OpenAIClient
+    from graphiti_core.llm_client.config import LLMConfig
+
+    # Import configuration and tools using relative paths
+    from .config import GraphitiConfig, MCPConfig
+    from .tools import register_tools
+    # Import the original tools (will be commented out but kept for reference)
+    from .music_tools import register_music_tools
+    from .music_tools_part2 import register_music_tools_part2
+    from .relationship_tools import register_relationship_tools
+    # Import the new universal parser
+    from .parser import MusicDataParser
+    from .models.music import (
+        Artist, Album, Track, Equipment, Studio, Person, 
+        Credit, Label, Performance, Effect,
+        Requirement, Preference, Procedure
+    )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -184,6 +212,8 @@ def register_streamlined_tools(mcp: FastMCP, graphiti_client: Graphiti, llm_clie
                 name=f"{entity_type}: {filtered_attributes.get('name') or filtered_attributes.get('title')}",
                 episode_body=episode_body,
                 source="json",
+                source_description=f"Entity added via add_entity tool",
+                reference_time=datetime.now(timezone.utc),
                 group_id=effective_group_id,
                 entity_types={entity_type: model_class}
             )
@@ -600,6 +630,9 @@ async def main():
     elif mcp_config.transport == "sse":
         # Configure SSE settings
         mcp.settings.port = args.port
+        # Add a small delay to potentially mitigate startup race conditions
+        logger.info("Adding small delay before starting SSE server loop...")
+        await asyncio.sleep(0.1) 
         # Run the SSE server
         await mcp.run_sse_async()
 

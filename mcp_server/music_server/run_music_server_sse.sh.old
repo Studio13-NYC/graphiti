@@ -34,3 +34,6 @@ python -m music_server.server \
     --embedder-model $OPENAI_EMBEDDING_MODEL \
     --use-streamlined \
     "$@" 
+
+uv run graphiti_mcp_server.py --model gpt-4o-mini --transport sse --group-id s13-music --port 8000  --use-custom-entities --use-streamlined
+  
